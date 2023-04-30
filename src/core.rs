@@ -1,4 +1,9 @@
 use tiny_keccak::{Hasher, Keccak};
+use libsecp256k1::{util::FULL_PUBLIC_KEY_SIZE, Error as SecpError};
+use hkdf::Hkdf;
+
+const EMPTY_BYTES: [u8; 0] = [];
+const NONCE_SIZE: usize = 12;
 
 const CORE_DATA:u8  = 11;
 
@@ -29,6 +34,7 @@ const CORE_TRANSACTION:u8 = 101;
 const CORE_CONTRACT_INFO:u8 = 142;
 const CORE_PAGE_INFO:u8 = 147;
 const CORE_CODE_INFO:u8 = 148;
+const CORE_USER_INFO:u8 = 149;
 
 // KeyType
 const ETH:u16 = 2;
@@ -589,4 +595,111 @@ fn keccak256(bytes: &Vec<u8>) -> Vec<u8> {
 	keccak256.finalize(hash);
     return hash.to_vec();
 }
+
+fn _generate_keypair() -> (SecretKey, PublicKey) {
+    let sk = SecretKey::random(&mut OsRng);
+    (sk, PublicKey::from_secret_key(&sk))
+}
+
+fn _hkdf_sha256(master: &Vec<u8>) -> Result<Vec<u8>, SecpError> {
+    let h = Hkdf::<Sha256>::new(None, master);
+    let mut out = [0u8; 32];
+    h.expand(&EMPTY_BYTES, &mut out).map_err(|_| SecpError::InvalidInputLength)?;
     
+    Ok(out.to_vec())
+}
+
+fn _encapsulate(sk: &SecretKey, peer_pk: &PublicKey) -> Result<Vec<u8>, SecpError> {
+    let mut shared_point = *peer_pk;
+    shared_point.tweak_mul_assign(sk)?;
+
+    let mut master = Vec::with_capacity(FULL_PUBLIC_KEY_SIZE * 2);
+    master.extend(PublicKey::from_secret_key(sk).serialize().iter());
+    master.extend(shared_point.serialize().iter());
+
+    _hkdf_sha256(&master.to_vec())
+}
+
+fn _decapsulate(pk: &PublicKey, peer_sk: &SecretKey) -> Result<Vec<u8>, SecpError> {
+    let mut shared_point = *pk;
+    shared_point.tweak_mul_assign(peer_sk)?;
+
+    let mut master = Vec::with_capacity(FULL_PUBLIC_KEY_SIZE * 2);
+    master.extend(pk.serialize().iter());
+    master.extend(shared_point.serialize().iter());
+
+    _hkdf_sha256(&master.to_vec())
+}
+
+fn _generate_aes_key() -> Vec<u8> {
+    return Aes256Gcm::generate_key(&mut OsRng).to_vec();
+}
+
+fn _generate_aes_nonce() -> Vec<u8> {
+    return Aes256Gcm::generate_nonce(&mut OsRng).to_vec();
+}
+
+fn _aes_encrypt(k:&Vec<u8>, n:&Vec<u8>, m:&Vec<u8>) -> Result<Vec<u8>, SecpError> {
+    let cipher = match Aes256Gcm::new_from_slice(k) {
+        Ok(c) => c,
+        _ => {
+            return Err(SecpError::InvalidInputLength);
+        }
+    };
+    let nonce = Nonce::from_slice(n);
+    let ciphertext = match cipher.encrypt(nonce, m.as_ref()) {
+        Ok(c) => c,
+        _ => {
+            return Err(SecpError::InvalidMessage);
+        }
+    };
+    
+    Ok(ciphertext)
+}
+
+fn _aes_decrypt(k:&Vec<u8>, n:&Vec<u8>, m:&Vec<u8>) -> Result<Vec<u8>, SecpError> {
+    let cipher = match Aes256Gcm::new_from_slice(k) {
+        Ok(c) => c,
+        _ => {
+            return Err(SecpError::InvalidInputLength);
+        }
+    };
+    let nonce = Nonce::from_slice(n);
+    let dephertext = match cipher.decrypt(nonce, m.as_ref()) {
+        Ok(c) => c,
+        _ => {
+            return Err(SecpError::InvalidMessage);
+        }
+    };
+
+    Ok(dephertext)
+}
+ 
+fn _encrypt(receiver_pk: &PublicKey, msg: &Vec<u8>) -> Result<Vec<u8>, SecpError> {
+    let (ephemeral_sk, ephemeral_pk) = _generate_keypair();
+    
+    let aes_key = _encapsulate(&ephemeral_sk, &receiver_pk)?;
+    let nonce = _generate_aes_nonce();
+    let encrypted = _aes_encrypt(&aes_key, &nonce, msg)?;
+
+    let mut cipher_text = Vec::with_capacity(FULL_PUBLIC_KEY_SIZE + NONCE_SIZE + encrypted.len());
+    cipher_text.extend(ephemeral_pk.serialize().iter());
+    cipher_text.extend(nonce);
+    cipher_text.extend(encrypted);
+
+    Ok(cipher_text)
+}
+
+fn _decrypt(receiver_sk: &SecretKey, msg: &Vec<u8>) -> Result<Vec<u8>, SecpError> {
+    if msg.len() < (FULL_PUBLIC_KEY_SIZE + NONCE_SIZE) {
+        return Err(SecpError::InvalidMessage);
+    }
+
+    let ephemeral_pk = PublicKey::parse_slice(&msg[..FULL_PUBLIC_KEY_SIZE], None)?;
+    let nonce = &msg[FULL_PUBLIC_KEY_SIZE..FULL_PUBLIC_KEY_SIZE + NONCE_SIZE];
+    let encrypted = &msg[FULL_PUBLIC_KEY_SIZE + NONCE_SIZE..];
+
+    let aes_key = _decapsulate(&ephemeral_pk, &receiver_sk)?;
+
+    _aes_decrypt(&aes_key, &nonce.to_vec(), &encrypted.to_vec())
+}

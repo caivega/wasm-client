@@ -1,3 +1,16 @@
+fn get_public(pub_key: &String) -> Result<(u16, PublicKey), Error> {
+    let s = pub_key.strip_prefix("eth.").unwrap_or(&pub_key);
+    match hex::decode(s) {
+        Ok(ss) => {
+            let pk = PublicKey::parse_slice(&ss, Some(PublicKeyFormat::Full)).unwrap();
+            return Ok((ETH, pk));
+        }
+        _ => {
+            return Err(Error::new(ErrorKind::InvalidData, "public key"));
+        }
+    }
+}
+
 fn get_secret(secret: &String) -> Result<(u16, SecretKey, PublicKey, String), Error> {
     let s = secret.strip_prefix("eth.").unwrap_or(&secret);
     match hex::decode(s) {
@@ -146,11 +159,16 @@ fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, E
     
     if let Ok(Some(cm)) = _get_map(&pm, "contract") {
         let mut contract_info = pb::ContractInfo{
+            account: vec![],
             method:"".to_string(),
             inputs: vec![],
             outputs: vec![],
             params: vec![],
         };
+
+        if let Some(account) = _get_string(&cm, "account")? {
+            contract_info.account = get_address(&account)?;
+        }
 
         contract_info.method = _get_string_required(&cm, "method")?;
 
@@ -213,7 +231,70 @@ fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, E
                 infos.push(info);
             }
             _ => {
-                return Err(Error::new(ErrorKind::InvalidData, "contract info"));
+                return Err(Error::new(ErrorKind::InvalidData, "page info"));
+            }
+        }
+    }
+
+    if let Ok(Some(cm)) = _get_map(&pm, "user") {
+        let mut user_info = pb::UserInfo{
+            account: vec![],
+            key:vec![],
+            nonce:vec![],
+            data: None,
+        };
+
+        let account = _get_string_required(&cm, "account")?;
+        user_info.account = get_address(&account)?;
+
+        if let Ok(Some(key)) = _get_string(&cm, "key") {
+            match hex::decode(key) {
+                Ok(key_bytes) => {
+                    user_info.key = key_bytes;
+                }
+                _ => {
+                    return Err(Error::new(ErrorKind::InvalidData, "key in user info"));
+                }
+            }
+        }
+
+        if let Ok(Some(nonce)) = _get_string(&cm, "nonce") {
+            match hex::decode(nonce) {
+                Ok(nonce_bytes) => {
+                    user_info.nonce = nonce_bytes;
+                }
+                _ => {
+                    return Err(Error::new(ErrorKind::InvalidData, "nonce in user info"));
+                }
+            }
+        }
+
+        let data = _get_string_required(&cm, "data")?;
+        match hex::decode(data) {
+            Ok(data_bytes) =>  {
+                user_info.data = Some(pb::DataInfo{
+                    hash:vec![],
+                    content: data_bytes,
+                });
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "data in user info"));
+            }
+        }
+        match encode(CORE_USER_INFO, &user_info) {
+            Ok(user_bytes) => {
+                let h256 = hash256(&user_bytes);
+                let mut info = pb::DataInfo{
+                    hash: h256,
+                    content: vec![],
+                };
+                if has_content {
+                    info.content = user_bytes;
+                }
+                infos.push(info);
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "user info"));
             }
         }
     }
@@ -226,14 +307,12 @@ fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
     let from = _get_string_required(&m, "from")?;
     let secret = _get_string_required(&m, "secret")?;
     let to = _get_string_required(&m, "to")?;
-    let value = _get_string_required(&m, "value")?;
     let gas = _get_string_required(&m, "gas")?;
     let sequence = _get_string_required(&m, "sequence")?;
     
     // println!("from: {}", from);
     // println!("secret: {}", secret);
     // println!("to: {}", to);
-    // println!("value: {}", value);
     // println!("gas: {}", gas);
     // println!("sequence: {}", sequence);
 
@@ -248,8 +327,7 @@ fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
         transaction_type: CORE_TRANSACTION as u32,
         account: from_address,
         sequence: sequence.parse::<u64>().unwrap(),
-        amount: value,
-        gas: gas.parse::<i64>().unwrap(),
+        gas: gas.parse::<u64>().unwrap(),
         destination: to_address,
         payload: None,
         public_key: encode_key(key_type, pub_key.serialize().to_vec()),
@@ -281,7 +359,7 @@ fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
     let buf = encode(CORE_TRANSACTION, &tx).unwrap();
     let tx_bytes = buf.to_vec();
 
-    let h = hash256(&tx_bytes);
+    // let h = hash256(&tx_bytes);
     // println!("hash: {:?} {:?}", hex::encode(h256), hex::encode(h));
 
     return Ok(hex::encode(tx_bytes));

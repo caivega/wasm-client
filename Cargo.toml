@@ -1,5 +1,5 @@
 [package]
-name = "wasm-lib"
+name = "wasm-client"
 version = "0.1.0"
 edition = "2021"
 
@@ -8,16 +8,18 @@ edition = "2021"
 crate-type = ["cdylib"]
 
 [dependencies]
+getrandom = { version = "0.2.9", features = ["js"] }
 hex = "0.4.3"
 wasm-bindgen = "0.2.78"
 bytes = "1.4.0"
 prost = "0.11.8"
 prost-types = "0.11.8"
 prost-derive = "0.11.8"
-ecies = {version = "0.2", default-features = false, features = ["pure"]}
 libsecp256k1 = "0.7.1"
-sha2 = "0.10.6"
 tiny-keccak = { version = "2.0.0", features = ["keccak"] }
+sha2 = "0.9.9"
+hkdf = "0.10.0"
+aes-gcm = "0.10.1"
 
 [package.metadata.wasm-pack.profile.release]
 wasm-opt = false
