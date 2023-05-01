@@ -346,6 +346,16 @@ fn decode<T: ProtoMessage + std::default::Default>(data: &Vec<u8>) -> Result<Opt
                 },
             };
         }
+        CORE_USER_INFO => {
+            match ProtoMessage::decode(rdata.chunk()) {
+                Ok(info) => {
+                    return Ok(Some(info));
+                }, 
+                Err(err) => {
+                    return Err(Error::new(ErrorKind::InvalidData, err));
+                },
+            };
+        }
         _ => {
             return Err(Error::new(ErrorKind::InvalidData, "unknown data type"));
         }
@@ -405,6 +415,35 @@ fn decode_string(data: &pb::Data) -> Option<String> {
         }
     }
     return None;
+}
+
+fn decode_key(key: &Vec<u8>) -> Option<String> {
+    let mut rdata = key.as_slice();
+    let t = rdata.get_u16_le();
+    let data = rdata.chunk();
+
+    let address_hex = hex::encode(data);
+    let address_bytes: &mut [u8] = &mut address_hex.as_bytes().to_owned();
+    let address_hash = keccak256(&address_hex.as_bytes().to_vec());
+    for i in 0..address_bytes.len() {
+        let mut hash_byte = address_hash[i/2];
+        if i%2 == 0 {
+            hash_byte = hash_byte >> 4
+        } else {
+            hash_byte &= 0xf
+        }
+        if address_bytes[i] > b'9' && hash_byte > 7 {
+            address_bytes[i] -= 32
+        }
+    }
+    let address = match from_utf8(address_bytes) {
+        Ok(a) => a,
+        _ => {
+            return None;
+        }
+    };
+
+    return Some(String::from("eth.0x".to_owned() + address));
 }
 
 fn encode_boolean(b: bool) -> Vec<u8> {

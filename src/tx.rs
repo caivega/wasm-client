@@ -1,3 +1,5 @@
+use std::io::{Error, ErrorKind};
+
 fn get_public(pub_key: &String) -> Result<(u16, PublicKey), Error> {
     let s = pub_key.strip_prefix("eth.").unwrap_or(&pub_key);
     match hex::decode(s) {
@@ -20,28 +22,20 @@ fn get_secret(secret: &String) -> Result<(u16, SecretKey, PublicKey, String), Er
 
             let pub_bytes = pub_key.serialize();
             let hash = keccak256(&pub_bytes[1..].to_vec());
-            let address_hex = hex::encode(hash[12..].to_vec());
-            let address_bytes: &mut [u8] = &mut address_hex.as_bytes().to_owned();
-            let address_hash = keccak256(&address_hex.as_bytes().to_vec());
-            for i in 0..address_bytes.len() {
-                let mut hash_byte = address_hash[i/2];
-                if i%2 == 0 {
-                    hash_byte = hash_byte >> 4
-                } else {
-                    hash_byte &= 0xf
-                }
-                if address_bytes[i] > b'9' && hash_byte > 7 {
-                    address_bytes[i] -= 32
-                }
-            }
-            let address = match from_utf8(address_bytes) {
-                Ok(a) => a,
+            let key_data = hash[12..].to_vec();
+            
+            let mut key = vec![];
+            key.put_u16_le(ETH);
+            key.put_slice(key_data.as_slice());
+
+            let address = match decode_key(&key) {
+                Some(a) => a,
                 _ => {
                     return Err(Error::new(ErrorKind::InvalidData, "address"));
                 }
             };
 
-            Ok((ETH, priv_key, pub_key, String::from("eth.0x".to_owned() + address)))
+            Ok((ETH, priv_key, pub_key, address))
         }
         _ => {
             return Err(Error::new(ErrorKind::InvalidData, "secret"));
@@ -237,50 +231,7 @@ fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, E
     }
 
     if let Ok(Some(cm)) = _get_map(&pm, "user") {
-        let mut user_info = pb::UserInfo{
-            account: vec![],
-            key:vec![],
-            nonce:vec![],
-            data: None,
-        };
-
-        let account = _get_string_required(&cm, "account")?;
-        user_info.account = get_address(&account)?;
-
-        if let Ok(Some(key)) = _get_string(&cm, "key") {
-            match hex::decode(key) {
-                Ok(key_bytes) => {
-                    user_info.key = key_bytes;
-                }
-                _ => {
-                    return Err(Error::new(ErrorKind::InvalidData, "key in user info"));
-                }
-            }
-        }
-
-        if let Ok(Some(nonce)) = _get_string(&cm, "nonce") {
-            match hex::decode(nonce) {
-                Ok(nonce_bytes) => {
-                    user_info.nonce = nonce_bytes;
-                }
-                _ => {
-                    return Err(Error::new(ErrorKind::InvalidData, "nonce in user info"));
-                }
-            }
-        }
-
-        let data = _get_string_required(&cm, "data")?;
-        match hex::decode(data) {
-            Ok(data_bytes) =>  {
-                user_info.data = Some(pb::DataInfo{
-                    hash:vec![],
-                    content: data_bytes,
-                });
-            }
-            _ => {
-                return Err(Error::new(ErrorKind::InvalidData, "data in user info"));
-            }
-        }
+        let user_info = _get_user_info(cm, true)?;
         match encode(CORE_USER_INFO, &user_info) {
             Ok(user_bytes) => {
                 let h256 = hash256(&user_bytes);
@@ -301,6 +252,70 @@ fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, E
     return Ok(pb::PayloadInfo{
         infos:infos,
     });
+}
+
+fn _get_user_info(cm: pb::DataMap, has_data:bool) -> Result<pb::UserInfo, Error> {
+    let mut user_info = pb::UserInfo{
+        account: vec![],
+        key:vec![],
+        nonce:vec![],
+        data: None,
+    };
+
+    let account = _get_string_required(&cm, "account")?;
+    user_info.account = get_address(&account)?;
+
+    if let Ok(Some(key)) = _get_string(&cm, "key") {
+        match hex::decode(key) {
+            Ok(key_bytes) => {
+                user_info.key = key_bytes;
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "key in user info"));
+            }
+        }
+    }
+
+    if let Ok(Some(nonce)) = _get_string(&cm, "nonce") {
+        match hex::decode(nonce) {
+            Ok(nonce_bytes) => {
+                user_info.nonce = nonce_bytes;
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "nonce in user info"));
+            }
+        }
+    }
+
+    if has_data {
+        let data = _get_string_required(&cm, "data")?;
+        match hex::decode(data) {
+            Ok(data_bytes) =>  {
+                user_info.data = Some(pb::DataInfo{
+                    hash:vec![],
+                    content: data_bytes,
+                });
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "data in user info"));
+            }
+        }
+    }else{
+        let hash = _get_string_required(&cm, "hash")?;
+        match hex::decode(hash) {
+            Ok(hash_bytes) =>  {
+                user_info.data = Some(pb::DataInfo{
+                    hash:hash_bytes,
+                    content: vec![],
+                });
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "hash in user info"));
+            }
+        }
+    }
+    
+    return Ok(user_info);
 }
 
 fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
