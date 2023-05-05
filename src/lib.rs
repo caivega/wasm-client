@@ -35,6 +35,33 @@ pub fn generate_nonce() -> String {
 }
 
 #[wasm_bindgen]
+pub fn encode_public_key(s: String) -> String {
+    if let Ok((t, pk)) = get_public(&s) {
+        let key = encode_key(t, pk.serialize().to_vec());
+        return hex::encode(key);
+    }
+    return "".to_string();
+}
+
+#[wasm_bindgen]
+pub fn decode_public_key(s: String) -> String {
+    if let Ok(b) = hex::decode(s) {
+        let (t, key) = decode_key(b);
+        let key_type = get_key(t);
+        return key_type.to_owned() + "." + &hex::encode(key);
+    }
+    return "".to_string();
+}
+
+#[test]
+pub fn public_key_test() {
+    let pk = "020004d33a199d322fafd28867e3b9fb2f5ac081d56cff1ae803635730e1d01b77d837d9ee578346dd88b68d21b9a61b8f1efe9b2574f08b4a471f864fa7ea7a29185c";
+    let s = decode_public_key(pk.to_string());
+    let t = encode_public_key(s);
+    assert_eq!(pk, t);
+}
+
+#[wasm_bindgen]
 pub fn encode_user_info(s: String) -> String {
     if let Ok(b) = hex::decode(s) {
         if let Ok(Some(m)) = decode::<pb::DataMap>(&b) {
@@ -52,7 +79,7 @@ pub fn encode_user_info(s: String) -> String {
 pub fn decode_user_info(s: String) -> String {
     if let Ok(b) = hex::decode(s) {
         if let Ok(Some(user_info)) = decode::<pb::UserInfo>(&b) {
-            if let Some(address) = decode_key(&user_info.account) {
+            if let Some(address) = decode_address(&user_info.account) {
                 if let Some(data) = user_info.data {
                     return address + "," + &hex::encode(&user_info.key) + "," + &hex::encode(&user_info.nonce) + "," + &hex::encode(&data.hash);
                 }

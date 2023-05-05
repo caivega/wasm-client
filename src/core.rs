@@ -39,6 +39,17 @@ const CORE_USER_INFO:u8 = 149;
 // KeyType
 const ETH:u16 = 2;
 
+fn get_key(t: u16) -> &'static str {
+    match t {
+        ETH => {
+            return "eth";
+        }
+        _ => {
+            return "";
+        }
+    }
+}
+
 fn get_info(meta: u8) -> &'static str {
     match meta {
         CORE_DATA => {
@@ -417,7 +428,14 @@ fn decode_string(data: &pb::Data) -> Option<String> {
     return None;
 }
 
-fn decode_key(key: &Vec<u8>) -> Option<String> {
+fn decode_key(key: Vec<u8>) -> (u16, Vec<u8>) {
+    let mut rdata = key.as_slice();
+    let t = rdata.get_u16_le();
+    let data = rdata.chunk();
+    return (t, data.to_vec());
+}
+
+fn decode_address(key: &Vec<u8>) -> Option<String> {
     let mut rdata = key.as_slice();
     let t = rdata.get_u16_le();
     let data = rdata.chunk();

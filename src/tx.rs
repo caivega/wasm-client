@@ -24,11 +24,8 @@ fn get_secret(secret: &String) -> Result<(u16, SecretKey, PublicKey, String), Er
             let hash = keccak256(&pub_bytes[1..].to_vec());
             let key_data = hash[12..].to_vec();
             
-            let mut key = vec![];
-            key.put_u16_le(ETH);
-            key.put_slice(key_data.as_slice());
-
-            let address = match decode_key(&key) {
+            let key = encode_key(ETH, key_data);
+            let address = match decode_address(&key) {
                 Some(a) => a,
                 _ => {
                     return Err(Error::new(ErrorKind::InvalidData, "address"));
