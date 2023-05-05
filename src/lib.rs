@@ -36,6 +36,9 @@ pub fn generate_nonce() -> String {
 
 #[wasm_bindgen]
 pub fn encode_public_key(s: String) -> String {
+    if s.len() == 0 {
+        return "".to_string()
+    }
     if let Ok((t, pk)) = get_public(&s) {
         let key = encode_key(t, pk.serialize().to_vec());
         return hex::encode(key);
@@ -45,6 +48,9 @@ pub fn encode_public_key(s: String) -> String {
 
 #[wasm_bindgen]
 pub fn decode_public_key(s: String) -> String {
+    if s.len() == 0 {
+        return "".to_string()
+    }
     if let Ok(b) = hex::decode(s) {
         let (t, key) = decode_key(b);
         let key_type = get_key(t);
@@ -63,6 +69,9 @@ pub fn public_key_test() {
 
 #[wasm_bindgen]
 pub fn encode_user_info(s: String) -> String {
+    if s.len() == 0 {
+        return "".to_string()
+    }
     if let Ok(b) = hex::decode(s) {
         if let Ok(Some(m)) = decode::<pb::DataMap>(&b) {
             if let Ok(user_info) = _get_user_info(m, false) {
@@ -77,6 +86,9 @@ pub fn encode_user_info(s: String) -> String {
 
 #[wasm_bindgen]
 pub fn decode_user_info(s: String) -> String {
+    if s.len() == 0 {
+        return "".to_string()
+    }
     if let Ok(b) = hex::decode(s) {
         if let Ok(Some(user_info)) = decode::<pb::UserInfo>(&b) {
             if let Some(address) = decode_address(&user_info.account) {
@@ -119,6 +131,9 @@ pub fn decrypt_data(key:String, nonce:String, msg:String) -> String {
 
 #[wasm_bindgen]
 pub fn encapsulate(secret:String, peer_public:String) -> String {
+    if secret.len() == 0 || peer_public.len() == 0 {
+        return "".to_string()
+    }
     if let Ok((_, priv_key, _, _)) = get_secret(&secret) {
         if let Ok((_, pub_key)) = get_public(&peer_public) {
             if let Ok(r) = _encapsulate(&priv_key, &pub_key) {
@@ -131,6 +146,9 @@ pub fn encapsulate(secret:String, peer_public:String) -> String {
 
 #[wasm_bindgen]
 pub fn decapsulate(pub_key:String, peer_secret:String) -> String {
+    if pub_key.len() == 0 || peer_secret.len() == 0 {
+        return "".to_string()
+    }
     if let Ok((_, pub_key)) = get_public(&pub_key) {
         if let Ok((_, priv_key, _, _)) = get_secret(&peer_secret) {
             if let Ok(r) = _decapsulate(&pub_key, &priv_key) {
@@ -143,6 +161,9 @@ pub fn decapsulate(pub_key:String, peer_secret:String) -> String {
 
 #[wasm_bindgen]
 pub fn encrypt(public_key:String, msg:String) -> String {
+    if public_key.len() == 0 {
+        return "".to_string()
+    }
     if let Ok((_, pub_key)) = get_public(&public_key) {
         if let Ok(m) = hex::decode(msg) {
             if let Ok(r) = _encrypt(&pub_key, &m) {
@@ -156,6 +177,9 @@ pub fn encrypt(public_key:String, msg:String) -> String {
 
 #[wasm_bindgen]
 pub fn decrypt(secret:String, msg:String) -> String {
+    if secret.len() == 0 {
+        return "".to_string()
+    }
     if let Ok((_, priv_key, _, _)) = get_secret(&secret) {
         if let Ok(m) = hex::decode(msg) {
             if let Ok(r) = _decrypt(&priv_key, &m) {
