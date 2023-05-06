@@ -211,7 +211,11 @@ pub fn generate_account(phrase:String) -> String {
     let hash = keccak256(&bs.to_vec());
 
     let secret = "eth.".to_owned() + &hex::encode(&hash);
-    
+    return import_account(secret);
+}
+
+#[wasm_bindgen]
+pub fn import_account(secret:String) -> String {
     let (_, _, pub_key, address) = get_secret(&secret).unwrap();
     let public = "eth.".to_owned() + &hex::encode(pub_key.serialize());
 
@@ -220,26 +224,6 @@ pub fn generate_account(phrase:String) -> String {
     // println!("{}", &address);
 
     return ["ETH", &address, &secret, &public].join(",");
-
-    // let mut mm = HashMap::<String, pb::Data>::new();
-    // mm.insert("type".to_string(), pb::Data {
-    //     bytes: encode_string("ETH".to_string()),
-    // });
-    // mm.insert("address".to_string(), pb::Data{
-    //     bytes: encode_string(address),
-    // });
-    // mm.insert("private".to_string(), pb::Data{
-    //     bytes: encode_string(secret),
-    // });
-    // mm.insert("public".to_string(), pb::Data{
-    //     bytes: encode_string(public),
-    // });
-    // let nm = pb::DataMap{
-    //     map: mm,
-    // };
-    // let rb = encode(CORE_DATA_MAP, &nm).unwrap();
-    // let reply = hex::encode(rb);
-    // return reply;
 }
 
 #[wasm_bindgen]
