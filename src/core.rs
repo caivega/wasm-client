@@ -32,6 +32,8 @@ const CORE_DATA_MAP:u8  = 65;
 const CORE_TRANSACTION:u8 = 101;
 
 const CORE_CONTRACT_INFO:u8 = 142;
+const CORE_META_INFO:u8 = 143;
+const CORE_TOKEN_INFO:u8 = 144;
 const CORE_PAGE_INFO:u8 = 147;
 const CORE_CODE_INFO:u8 = 148;
 const CORE_USER_INFO:u8 = 149;
@@ -437,7 +439,7 @@ fn decode_key(key: Vec<u8>) -> (u16, Vec<u8>) {
 
 fn decode_address(key: &Vec<u8>) -> Option<String> {
     let mut rdata = key.as_slice();
-    let t = rdata.get_u16_le();
+    let _t = rdata.get_u16_le();
     let data = rdata.chunk();
 
     let address_hex = hex::encode(data);
@@ -581,17 +583,72 @@ fn encode<T: ProtoMessage + std::default::Default>(t: u8, m: &T) -> Result<Vec<u
     return Ok(m.to_vec());
 }
 
+fn _contains_key(m: &pb::DataMap, k: &str) -> bool {
+    for entry in &m.map {
+        if entry.name == k {
+            return true;
+        }
+    }
+    return false;
+}
+
+fn _get(m: &pb::DataMap, k: &str) -> Option<pb::Data> {
+    for entry in &m.map {
+        if entry.name == k {
+            match &entry.value {
+                Some(v) => {
+                    return Some(pb::Data{
+                        bytes: v.bytes.to_vec(),
+                    })
+                }
+                _ => {
+                    return None;
+                }
+            }
+        }
+    }
+    return None;
+}
+
+fn _get_option_string(o: Option<String>) -> String {
+    match o {
+        Some(s) => {
+            return s;
+        }
+        _ => {
+            return "".to_string();
+        }
+    }
+}
+
 fn _get_string(m: &pb::DataMap, k: &str) -> Result<Option<String>, Error> {
-    if !m.map.contains_key(k) {
+    if !_contains_key(m, k) {
         return Ok(None);   
     }
-    if let Some(v) = m.map.get(k) {
+    if let Some(v) = _get(m, k) {
         match decode_string(&v) {
             Some(s) => {
                 return Ok(Some(s));
             }
             _ => {
                 return Err(Error::new(ErrorKind::InvalidData, "string"));
+            }
+        }
+    }
+    return Ok(None);
+}
+
+fn _get_i64(m: &pb::DataMap, k: &str) -> Result<Option<i64>, Error> {
+    if !_contains_key(m, k) {
+        return Ok(None);   
+    }
+    if let Some(v) = _get(m, k) {
+        match decode_i64(&v) {
+            Some(s) => {
+                return Ok(Some(s));
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "int64"));
             }
         }
     }
@@ -610,11 +667,23 @@ fn _get_string_required(m: &pb::DataMap, k: &str) -> Result<String, Error> {
     }
 }
 
+fn _get_i64_required(m: &pb::DataMap, k: &str) -> Result<i64, Error> {
+    let r = _get_i64(m, k)?;
+    match r {
+        Some(v) => {
+            return Ok(v);
+        }
+        None => {
+            return Err(Error::from(ErrorKind::NotFound));
+        }
+    }
+}
+
 fn _get_map(m: &pb::DataMap, k: &str) -> Result<Option<pb::DataMap>, Error> {
-    if !m.map.contains_key(k) {
+    if !_contains_key(m, k) {
         return Ok(None);
     }
-    if let Some(v) = m.map.get(k) {
+    if let Some(v) = _get(m, k) {
         match decode::<pb::DataMap>(&v.bytes) {
             Ok(o) => {
                 return Ok(o);
@@ -627,11 +696,40 @@ fn _get_map(m: &pb::DataMap, k: &str) -> Result<Option<pb::DataMap>, Error> {
     return Ok(None);
 }
 
+fn _get_list(m: &pb::DataMap, k: &str) -> Result<Option<pb::DataList>, Error> {
+    if !_contains_key(m, k) {
+        return Ok(None);
+    }
+    if let Some(v) = _get(m, k) {
+        match decode::<pb::DataList>(&v.bytes) {
+            Ok(o) => {
+                return Ok(o);
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "data list"));
+            }
+        }
+    }
+    return Ok(None);
+}
+
 fn _get_map_required(m: &pb::DataMap, k: &str) -> Result<pb::DataMap, Error> {
     let r = _get_map(m, k)?;
     match r {
         Some(sm) => {
             return Ok(sm);
+        }
+        None => {
+            return Err(Error::from(ErrorKind::NotFound));
+        }
+    }
+}
+
+fn _get_list_required(m: &pb::DataMap, k: &str) -> Result<pb::DataList, Error> {
+    let r = _get_list(m, k)?;
+    match r {
+        Some(ll) => {
+            return Ok(ll);
         }
         None => {
             return Err(Error::from(ErrorKind::NotFound));

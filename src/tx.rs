@@ -98,6 +98,20 @@ fn _get_params(m: &pb::DataMap, k: &str) -> Result<Option<Vec<Vec<u8>>>, Error> 
     }
 }
 
+fn _get_account_info(cm: &pb::DataMap) -> Result<pb::AccountInfo, Error> {
+    let mut info = pb::AccountInfo{
+        data: vec![],
+        code: vec![],
+    };
+    if let Ok(Some(data)) = _get_string(&cm, "data") {
+        info.data = get_address(&data)?;
+    }
+    if let Ok(Some(code)) = _get_string(&cm, "code") {
+        info.code = get_address(&code)?;
+    }
+    return Ok(info);
+}
+
 fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, Error> {
     let pm = _get_map_required(&m, "payload")?;
     let mut infos: Vec<pb::DataInfo> = Vec::new();
@@ -150,15 +164,16 @@ fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, E
     
     if let Ok(Some(cm)) = _get_map(&pm, "contract") {
         let mut contract_info = pb::ContractInfo{
-            account: vec![],
+            account: None,
             method:"".to_string(),
             inputs: vec![],
             outputs: vec![],
             params: vec![],
         };
 
-        if let Some(account) = _get_string(&cm, "account")? {
-            contract_info.account = get_address(&account)?;
+        if let Ok(Some(am)) = _get_map(&cm, "account") {
+            let account =  _get_account_info(&am)?;
+            contract_info.account = Some(account);
         }
 
         contract_info.method = _get_string_required(&cm, "method")?;
@@ -246,21 +261,148 @@ fn _get_payload(m: &pb::DataMap, has_content: bool) -> Result<pb::PayloadInfo, E
             }
         }
     }
+
+    if let Ok(Some(cm)) = _get_map(&pm, "meta") {
+        let meta_info = _get_meta_info(cm)?;
+        match encode(CORE_META_INFO, &meta_info) {
+            Ok(meta_bytes) => {
+                let h256 = hash256(&meta_bytes);
+                let mut info = pb::DataInfo{
+                    hash: h256,
+                    content: vec![],
+                };
+                if has_content {
+                    info.content = meta_bytes;
+                }
+                infos.push(info);
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "meta info"));
+            }
+        }
+    }
+
+    if let Ok(Some(cm)) = _get_map(&pm, "token") {
+        let token_info = _get_token_info(cm)?;
+        match encode(CORE_TOKEN_INFO, &token_info) {
+            Ok(token_bytes) => {
+                let h256 = hash256(&token_bytes);
+                let mut info = pb::DataInfo{
+                    hash: h256,
+                    content: vec![],
+                };
+                if has_content {
+                    info.content = token_bytes;
+                }
+                infos.push(info);
+            }
+            _ => {
+                return Err(Error::new(ErrorKind::InvalidData, "token info"));
+            }
+        }
+    }
+
     return Ok(pb::PayloadInfo{
         infos:infos,
     });
 }
 
+fn _get_token_info(cm: pb::DataMap) -> Result<pb::TokenInfo, Error> {
+    let mut token_info = pb::TokenInfo{
+        symbol:"".to_string(),
+        index:0 as u64,
+        items: vec![],
+    };
+
+    let symbol = _get_string_required(&cm, "symbol")?;
+    token_info.symbol = symbol;
+
+    let index = _get_i64_required(&cm, "index")?;
+    token_info.index = index as u64;
+
+    if let Ok(Some(token_items)) = _get_list(&cm, "items") {
+        let mut items:Vec<pb::TokenItem> = Vec::new();
+        for item in &token_items.list {
+            if let Ok(Some(im)) = decode::<pb::DataMap>(&item.bytes) {
+                let mut token_item = pb::TokenItem{
+                    name:"".to_string(),
+                    value:"".to_string(),
+                };
+                if let Ok(Some(name)) = _get_string(&im, "name") {
+                    token_item.name = name;
+                }
+                if let Ok(Some(value)) = _get_string(&im, "value") {
+                    token_item.value = value;
+                }
+                items.push(token_item);
+            }
+        }
+        token_info.items = items;
+    }
+    return Ok(token_info);
+}
+
+fn _get_meta_info(cm: pb::DataMap) -> Result<pb::MetaInfo, Error> {
+    let mut meta_info = pb::MetaInfo{
+        symbol:"".to_string(),
+        total:-1 as i64,
+        items: vec![],
+    };
+
+    let symbol = _get_string_required(&cm, "symbol")?;
+    meta_info.symbol = symbol;
+
+    let total = _get_i64_required(&cm, "total")?;
+    meta_info.total = total;
+
+    if let Ok(Some(meta_items)) = _get_list(&cm, "items") {
+        let mut items:Vec<pb::MetaItem> = Vec::new();
+        for item in &meta_items.list {
+            if let Ok(Some(im)) = decode::<pb::DataMap>(&item.bytes) {
+                let mut meta_item = pb::MetaItem{
+                    name:"".to_string(),
+                    r#type:"".to_string(),
+                    options: vec![],
+                    desc:"".to_string(),
+                };
+                if let Ok(Some(name)) = _get_string(&im, "name") {
+                    meta_item.name = name;
+                }
+                if let Ok(Some(t)) = _get_string(&im, "type") {
+                    meta_item.r#type = t;
+                }
+                if let Ok(Some(meta_options)) = _get_list(&im, "options") {
+                    let mut options:Vec<String> = Vec::new();
+                    for option in &meta_options.list {
+                        if let Some(o) = decode_string(&option) {
+                            options.push(o);
+                        }
+                    }
+                    meta_item.options = options;
+                }
+                if let Ok(Some(desc)) = _get_string(&im, "desc") {
+                    meta_item.desc = desc;
+                }
+                items.push(meta_item);
+            }
+        }
+        meta_info.items = items;
+    }
+    return Ok(meta_info);
+}
+
 fn _get_user_info(cm: pb::DataMap, has_data:bool) -> Result<pb::UserInfo, Error> {
     let mut user_info = pb::UserInfo{
-        account: vec![],
+        account: None,
         key:vec![],
         nonce:vec![],
         data: None,
     };
 
-    let account = _get_string_required(&cm, "account")?;
-    user_info.account = get_address(&account)?;
+    if let Ok(am) = _get_map_required(&cm, "account") {
+        let account =  _get_account_info(&am)?;
+        user_info.account = Some(account);
+    }
 
     if let Ok(Some(key)) = _get_string(&cm, "key") {
         match hex::decode(key) {
@@ -316,20 +458,17 @@ fn _get_user_info(cm: pb::DataMap, has_data:bool) -> Result<pb::UserInfo, Error>
 }
 
 fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
-    let from = _get_string_required(&m, "from")?;
-    let secret = _get_string_required(&m, "secret")?;
-    let to = _get_string_required(&m, "to")?;
-    let gas = _get_string_required(&m, "gas")?;
+    let account = _get_string_required(&m, "account")?;
     let sequence = _get_string_required(&m, "sequence")?;
+    let secret = _get_string_required(&m, "secret")?;
+    let gas = _get_string_required(&m, "gas")?;
     
-    // println!("from: {}", from);
-    // println!("secret: {}", secret);
-    // println!("to: {}", to);
-    // println!("gas: {}", gas);
+    // println!("account: {}", account);
     // println!("sequence: {}", sequence);
+    // println!("secret: {}", secret);
+    // println!("gas: {}", gas);
 
-    let from_address = get_address(&from)?;
-    let to_address = get_address(&to)?;
+    let account_address = get_address(&account)?;
 
     let (key_type, priv_key, pub_key, _address) = get_secret(&secret)?;
     // dump("public", &pub_key.serialize().to_vec());
@@ -337,16 +476,15 @@ fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
 
     let mut tx = pb::Transaction {
         transaction_type: CORE_TRANSACTION as u32,
-        account: from_address,
+        account: account_address,
         sequence: sequence.parse::<u64>().unwrap(),
         gas: gas.parse::<u64>().unwrap(),
-        destination: to_address,
         payload: None,
         public_key: encode_key(key_type, pub_key.serialize().to_vec()),
         signature: vec![],
     };
 
-    let has_payload = m.map.contains_key("payload");
+    let has_payload = _contains_key(&m, "payload");
     if has_payload {
         let payload = _get_payload(&m, false)?;
         tx.payload = Some(payload);
