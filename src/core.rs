@@ -30,6 +30,7 @@ const CORE_DATA_LIST:u8 = 64;
 const CORE_DATA_MAP:u8  = 65;
 
 const CORE_TRANSACTION:u8 = 101;
+const CORE_TRANSACTION_WITH_DATA:u8 = 103;
 
 const CORE_CONTRACT_INFO:u8 = 142;
 const CORE_META_INFO:u8 = 143;
@@ -326,6 +327,9 @@ fn decode<T: ProtoMessage + std::default::Default>(data: &Vec<u8>) -> Result<Opt
     let mut rdata = data.as_slice();
     let meta = rdata.get_u8();
     match meta {
+        CORE_DATA_NULL => {
+            return Ok(None);
+        }
         CORE_DATA => {
             match ProtoMessage::decode(rdata.chunk()) {
                 Ok(m) => {
@@ -335,9 +339,6 @@ fn decode<T: ProtoMessage + std::default::Default>(data: &Vec<u8>) -> Result<Opt
                     return Err(Error::new(ErrorKind::InvalidData, err));
                 },
             };
-        }
-        CORE_DATA_NULL => {
-            return Ok(None);
         }
         CORE_DATA_LIST => {
             match ProtoMessage::decode(rdata.chunk()) {
@@ -360,6 +361,26 @@ fn decode<T: ProtoMessage + std::default::Default>(data: &Vec<u8>) -> Result<Opt
             };
         }
         CORE_USER_INFO => {
+            match ProtoMessage::decode(rdata.chunk()) {
+                Ok(info) => {
+                    return Ok(Some(info));
+                }, 
+                Err(err) => {
+                    return Err(Error::new(ErrorKind::InvalidData, err));
+                },
+            };
+        }
+        CORE_TRANSACTION => {
+            match ProtoMessage::decode(rdata.chunk()) {
+                Ok(info) => {
+                    return Ok(Some(info));
+                }, 
+                Err(err) => {
+                    return Err(Error::new(ErrorKind::InvalidData, err));
+                },
+            };
+        }
+        CORE_TRANSACTION_WITH_DATA => {
             match ProtoMessage::decode(rdata.chunk()) {
                 Ok(info) => {
                     return Ok(Some(info));

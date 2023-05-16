@@ -514,3 +514,23 @@ fn _sign_tx(m: pb::DataMap) -> Result<String, Error> {
 
     return Ok(hex::encode(tx_bytes));
 }
+
+fn _verify_tx(mut tx: pb::Transaction) -> Result<bool, Error> {
+    let signature = tx.signature;
+    tx.signature = vec![];
+
+    if let Ok(buf) = encode(CORE_TRANSACTION, &tx) {
+        let tx_bytes = buf.to_vec();
+        let h256 = hash256(&tx_bytes);
+        let (_, public_bytes) = decode_key(tx.public_key);
+        if let Ok(pk) = PublicKey::parse_slice(&public_bytes, Some(PublicKeyFormat::Full)) {
+            if let Ok(signature) = Signature::parse_standard_slice(&signature) {
+                if let Ok(msg) = Message::parse_slice(&h256) {
+                    let ok = verify(&msg, &signature, &pk);
+                    return Ok(ok);
+                }
+            }
+        }
+    }
+    return Ok(false);
+}
