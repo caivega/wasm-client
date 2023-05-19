@@ -57,45 +57,47 @@ fn dump(name: &str, bytes: &Vec<u8>) {
 }
 
 fn _get_accounts(m: &pb::DataMap, k: &str) -> Result<Option<Vec<Vec<u8>>>, Error> {
-    match _get_string(m, k)? {
-        Some(s) => {
-            let inputs:Vec<&str> = s.split(",").collect();
-            let mut list:Vec<Vec<u8>> = Vec::new();
-            for _input in inputs {
-                let address = get_address(&_input.to_string())?;
+    if let Ok(Some(accounts)) = _get_list(&m, k) {
+        let mut list:Vec<Vec<u8>> = Vec::new();
+        for a in &accounts.list {
+            if let Some(o) = decode_string(&a) {
+                let address = get_address(&o)?;
                 list.push(address);
+            }else{
+                return Err(Error::new(ErrorKind::InvalidData, "account"));
             }
-            return Ok(Some(list));
         }
-        None => {
-            return Ok(None);
-        }
+        return Ok(Some(list));
     }
+    return Ok(None);
 }
 
 fn _get_params(m: &pb::DataMap, k: &str) -> Result<Option<Vec<Vec<u8>>>, Error> {
-    match _get_string(m, k)? {
-        Some(s) => {
-            let params:Vec<&str> = s.split(",").collect();
-            let mut list:Vec<Vec<u8>> = Vec::new();
-            for p in params {
-                let ps:Vec<&str> = p.split(":").collect();
-                if ps.len() != 2 {
-                    return Err(Error::new(ErrorKind::InvalidData, "parameter"));
-                }
-                let t = get_type(ps[1]);
-                if t == 0 {
+    if let Ok(Some(params)) = _get_list(&m, k) {
+        let mut list:Vec<Vec<u8>> = Vec::new();
+        for item in &params.list {
+            if let Ok(Some(im)) = decode::<pb::DataMap>(&item.bytes) {
+                if let Ok(Some(t)) = _get_string(&im, "type") {
+                    let t = get_type(&t);
+                    if t == 0 {
+                        return Err(Error::new(ErrorKind::InvalidData, "parameter type"));
+                    }
+                    if let Ok(Some(v)) = _get_string(&im, "value") {
+                        let data = get_from_string(t, &v)?;
+                        list.push(data);
+                    }else{
+                        return Err(Error::new(ErrorKind::InvalidData, "parameter value"));
+                    }
+                }else{
                     return Err(Error::new(ErrorKind::InvalidData, "parameter type"));
                 }
-                let data = get_from_string(t, ps[0])?;
-                list.push(data);
+            }else{
+                return Err(Error::new(ErrorKind::InvalidData, "not a map"));
             }
-            return Ok(Some(list));
         }
-        None => {
-            return Ok(None);
-        }
+        return Ok(Some(list));
     }
+    return Ok(None);
 }
 
 fn _get_account_info(cm: &pb::DataMap) -> Result<pb::AccountInfo, Error> {
